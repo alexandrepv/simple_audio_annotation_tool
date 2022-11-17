@@ -10,7 +10,6 @@ from tqdm import tqdm
 # DEBUG
 import matplotlib.pyplot as plt
 import librosa
-import simpleaudio as sa
 
 GAME_DESCRIPTION_FILENAME = 'game.json'
 HDF5_KEY_AUDIO_FOLDER = 'audio'

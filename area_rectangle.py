@@ -79,6 +79,12 @@ class AreaRectangle:
         axis.add_patch(self._handle)
         self._attached = True
 
+    def get_x_min(self):
+        return self.x
+
+    def get_x_max(self):
+        return self.x + self.width
+
     def get_x_min_pixels(self) -> float:
         if self._handle is not None:
             return self._handle.get_extents().x0
@@ -125,6 +131,11 @@ class AreaRectangle:
     def set_x(self, x: float, with_offset=False):
         if self._handle is not None and x is not None:
             self.x = x if not with_offset else x + self.mouse_offset_x
+            self._handle.set_x(self.x)
+
+    def increment_x(self, dx: float):
+        if self._handle is not None and dx is not None:
+            self.x += dx
             self._handle.set_x(self.x)
 
     def set_width(self, width: float):
