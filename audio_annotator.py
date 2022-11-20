@@ -5,7 +5,7 @@ import numpy as np
 import enum
 import sounddevice as sd
 
-from area_rectangle import AreaRectangle
+from annotation import Annotation
 from matplotlib.backend_tools import Cursors
 
 from game_resource_explorer import GameResourceExplorer
@@ -98,83 +98,120 @@ class AudioAnnotator:
         self.fig.canvas.mpl_connect('key_press_event', self.on_key_press)
         self.fig.canvas.mpl_connect('key_release_event', self.on_key_release)
         self.fig.canvas.mpl_connect('motion_notify_event', self.on_move)
-        self.fig.canvas.mpl_connect('scroll_event', self.on_scroll)
+        self.fig.canvas.mpl_connect('scroll_event', self.on_scroll)#
+
+    # ============================================================
+    #                       Setters
+    # ============================================================
+
+
+
+    # ============================================================
+    #                       Getters
+    # ============================================================
+
+    def get_selected_areas(self):
+        return [area for area in self.areas if area.selected]
+
+    def get_active_area(self):
+        active_areas = [area for area in self.areas if area.active]
+        if len(active_areas) == 0:
+            return None
+        return active_areas[0]
+
+    def get_hovering_area(self, x: float):
+        for area_handle in self.areas:
+            x_min = area_handle.get_x()
+            x_max = x_min + area_handle._width
+            if x_min < x < x_max:
+                return area_handle
+        return None
+
+    # ============================================================
+    #                       Callbacks
+    # ============================================================
 
     def on_press(self, event):
 
+        # Update Mouse Buttons
         if event.button == MOUSE_BUTTON_LEFT:
             self.mouse_left_down = True
 
         if event.button == MOUSE_BUTTON_RIGHT:
             self.mouse_right_down = True
 
+        # Get mouse data and pixel position
         mouse_x = event.xdata
         mouse_x_pixels = event.x
 
         for area in self.areas:
             area.deselect()
 
+        # Mouse LEFT CLICK
         if self.state == GUIState.IDLE and self.mouse_left_down and mouse_x is not None:
 
-            # TODO: Simplify hovering areas pre-selection
-            # Get all areas under the mouse
-            any_hovering_edges = False
+            # =====================================================================
+            # Stage 1) Check if any of the areas is being modified or moved
+            # =====================================================================
+
             for area in self.areas:
 
+                # Check Edges First
+                area.activate_edge()
+
+                # Check area second
+
                 if area.is_hovering(x=mouse_x, y=0):
-                    area.select(mouse_x=mouse_x)
+                    area.select(x=mouse_x)
+                else:
+                    area.deselect()
 
-                edge = area.is_hovering_edge(x_pixels=mouse_x_pixels)
+            # =====================================================================
+            # Stage 2) Check if a new area is being created
+            # =====================================================================
 
-                if edge == 'left':
-                    area.select(mouse_x=mouse_x)
-                    area._left_edge_selected = True
-                    any_hovering_edges = True
+            # TODO: Continue from here
 
-                elif edge == 'right':
-                    area.select(mouse_x=mouse_x)
-                    area._right_edge_selected = True
-                    any_hovering_edges = True
-
-            selected_areas = self.get_selected_areas()
-
-            # Update all mouse offsets for all selected areas
-            for area in selected_areas:
-                area.update_select_offset(mouse_x=mouse_x)
+            if self.active_area is not None:
+                self.active_area.update_select_offset(mouse_x=mouse_x)
 
             if any_hovering_edges:
                 self.state = GUIState.MOVING_EDGE
 
             else:
 
-                if len(selected_areas) == 0 and mouse_x is not None:
+                if mouse_x is not None:
 
                     for area in self.areas:
                         area.deselect()
+                        self.active_area = None
 
                     # CREATE NEW AREA
                     self.state = GUIState.NEW_AREA
-                    new_area = AreaRectangle(x=mouse_x, y=-1, width=0.001, height=2)
-                    new_area.attach(axis=self.top_axis)
-                    new_area.select(mouse_x=mouse_x)
+                    new_area = Annotation(x=mouse_x, y=-1, width=0.001, height=2)
+                    new_area.attach_to_axis(axis=self.top_axis)
+                    new_area.select(x=mouse_x)
                     new_area.set_x(x=mouse_x)
-                    new_area._right_edge_selected = True
+                    new_area.right_edge_active = True
                     self.areas.append(new_area)
-                    self.sort_areas()
+                    self._sort_areas()
 
                 else:
 
                     # MOVE SELECTED AREAS
                     self.state = GUIState.MOVING_AREA
-                    for area in selected_areas:
-                        area.set_x(x=mouse_x, with_offset=True)
+                    if self.active_area is not None:
+                        self.active_area.set_x(x=mouse_x, with_offset=True)
 
-                    # UPDATE SIGNAL ON BOTTON AXIS
-                    selected_area = selected_areas[0]
-                    index_start = int(np.round(selected_area.x))
-                    index_stop = int(np.round(selected_area.x + selected_area.width))
-                    self._update_bottom_axis(signal_index_start=index_start,
-                                             signal_index_stop=index_stop)
+                        # UPDATE SIGNAL ON BOTTON AXIS
+                        index_start = int(np.round(self.active_area.x))
+                        index_stop = int(np.round(self.active_area.x + self.active_area.width))
+                        self._update_bottom_axis(signal_index_start=index_start,
+                                                 signal_index_stop=index_stop)
+
+        # =====================================================================
+        # Stage 3) Check if the view is being panned
+        # =====================================================================
 
         if self.state == GUIState.IDLE and self.mouse_right_down and mouse_x is not None:
 
@@ -184,21 +221,21 @@ class AudioAnnotator:
             self.panning_x_max_original = self.top_axis.viewLim.xmax
             self.fig.canvas.set_cursor(Cursors.MOVE)
 
-        self.update_plot()
+        self._update_plot()
 
     def on_move(self, event):
 
         mouse_x = event.xdata
         mouse_x_pixels = event.x
 
+        # Update state of hovering edges on all areas
         any_hovering_edges = False
         for area in self.areas:
-            edge = area.is_hovering_edge(x_pixels=mouse_x_pixels)
-            if edge == 'left' or edge == 'right':
+            area.update_hovering_edges(x_pixels=mouse_x_pixels)
+            if area.is_edge_hovering():
                 any_hovering_edges = True
 
         if self.state == GUIState.PANNING:
-
             if mouse_x is not None:
                 delta = self.panning_mouse_x - mouse_x
                 x_min = self.top_axis.viewLim.x0 + delta
@@ -207,27 +244,25 @@ class AudioAnnotator:
                     self.top_axis.set_xlim(x_min, x_max)
 
         if self.state == GUIState.IDLE or self.state == GUIState.MOVING_EDGE:
-
-            # Change mouse cursor when hovering edges
             if any_hovering_edges:
                 self.fig.canvas.set_cursor(Cursors.RESIZE_HORIZONTAL)
             else:
                 self.fig.canvas.set_cursor(Cursors.POINTER)
 
         if self.state == GUIState.MOVING_EDGE or self.state == GUIState.NEW_AREA:
-
-            only_one_area_selected = len(self.get_selected_areas()) == 1
-
             for index, area in enumerate(self.areas):
 
-                valid_mouse_x = copy.copy(mouse_x)
+                if not area.active:
+                    continue
 
+                valid_mouse_x = copy.copy(mouse_x)
                 x_max_previous = -1E9
-                if index > 0 and only_one_area_selected:
+                x_min_next = 1E9
+
+                if index > 0:
                     x_max_previous = self.areas[index - 1].get_x_max()
 
-                x_min_next = 1E9
-                if index < len(self.areas) - 1 and only_one_area_selected:
+                if index < len(self.areas) - 1:
                     x_min_next = self.areas[index + 1].get_x_min()
 
                 if mouse_x < x_max_previous:
@@ -236,17 +271,18 @@ class AudioAnnotator:
                 if mouse_x > x_min_next:
                     valid_mouse_x = x_min_next
 
-                if area._left_edge_selected:
+                if area.left_edge_active:
                     area.set_x_min(x=valid_mouse_x)
 
-                if area._right_edge_selected:
+                if area.right_edge_active:
                      area.set_x_max(x=valid_mouse_x)
 
         if self.state == GUIState.MOVING_AREA:
-            for area in self.get_selected_areas():
-                area.set_x(x=mouse_x, with_offset=True)
+            active_area = self.get_active_area()
+            if active_area is not None:
+                active_area.set_x(x=mouse_x, with_offset=True)
 
-        self.update_plot()
+        self._update_plot()
 
     def on_release(self, event):
 
@@ -256,30 +292,24 @@ class AudioAnnotator:
         if event.button == MOUSE_BUTTON_RIGHT:
             self.mouse_right_down = False
 
-        areas_to_be_removed = []
-        for area in self.areas:
-            area.fix_negative_width()
-            delta = area.get_x_max_pixels() - area.get_x_min_pixels()
+        if self.state == GUIState.NEW_AREA and self.active_area is not None:
+            self.active_area.fix_negative_width()
+            delta = self.active_area.get_x_max_pixels() - self.active_area.get_x_min_pixels()
 
-            # Delete current area if area is too narrow
+            # Delete active area if area is too narrow
             if delta < MINIMUM_NEW_AREA_WIDTH_PIXELS:
-                area.set_visible(False)
-                areas_to_be_removed.append(area)
+                self.active_area.set_visible(False)
+                self.areas.remove(self.active_area)
+                self.active_area = None
 
-        for area in areas_to_be_removed:
-            self.areas.remove(area)
+        if self.state == GUIState.MOVING_EDGE and self.active_area is not None:
+            self.active_area.fix_negative_width()
 
-        selected_areas = self.get_selected_areas()
-
-        if self.state == GUIState.MOVING_EDGE:
-            for area in selected_areas:
-                area.fix_negative_width()
-
+        # TODO: Make this a self-contained bottom_axis update based on the self.active_area
         if self.bottom_signal_handle is not None and (self.state in [GUIState.NEW_AREA, GUIState.MOVING_EDGE, GUIState.MOVING_AREA]):
-            if len(selected_areas) > 0:
-                selected_area = selected_areas[0]
-                index_start = int(np.round(selected_area.x))
-                index_stop = int(np.round(selected_area.x + selected_area.width))
+            if self.active_area is not None:
+                index_start = int(np.round(self.active_area.x))
+                index_stop = int(np.round(self.active_area.x + self.active_area.width))
                 self._update_bottom_axis(signal_index_start=index_start,
                                          signal_index_stop=index_stop)
 
@@ -287,12 +317,12 @@ class AudioAnnotator:
             self.fig.canvas.set_cursor(Cursors.POINTER)
 
         for area in self.areas:
-            area._left_edge_selected = False
-            area._right_edge_selected = False
+            area.left_edge_active = False
+            area.right_edge_active = False
 
         self.state = GUIState.IDLE
-        self.sort_areas()
-        self.update_plot()
+        self._sort_areas()
+        self._update_plot()
 
     def on_scroll(self, event):
 
@@ -317,77 +347,44 @@ class AudioAnnotator:
 
         # Update axis limits
         self.top_axis.set_xlim(x_min, x_max)
-        self.update_plot()
+        self._update_plot()
 
     def on_key_press(self, event):
 
         # Arrow keys
-        selected_areas = self.get_selected_areas()
-        if event.key == 'shift+left':
-            for area in selected_areas:
-                area.increment_x(-ARROW_STEP_SIZE)
-            self.update_plot()
+        if self.active_area is not None:
 
-        if event.key == 'shift+right':
-            for area in selected_areas:
-                area.increment_x(ARROW_STEP_SIZE)
-            self.update_plot()
+            if event.key == 'left':
+                pass
 
-        if event.key == 'delete':
-            areas_to_be_deleted = [area for area in self.get_selected_areas()]
-            for area in areas_to_be_deleted:
-                area.set_visible(False)
-                self.areas.remove(area)
-            self.update_plot()
+            if event.key == 'shift+left':
+                self.active_area.increment_x(-ARROW_STEP_SIZE)
+
+            if event.key == 'shift+right':
+                self.active_area.increment_x(ARROW_STEP_SIZE)
+
+            if event.key == 'delete':
+                self._remove_areas(areas=[self.active_area])
+                self.active_area = None
+
 
         # TODO: Add escape key to unselect all areas
 
-
         if event.guiEvent.keysym == 'space':
             # Play selected sound
-            selected_areas = [area for area in self.get_selected_areas()]
-            if len(selected_areas) > 0:
-                index_start = int(np.round(selected_areas[0].x))
-                index_stop = int(np.round(index_start + selected_areas[0].width))
+            if self.active_area is not None:
+                index_start = int(np.round(self.active_area.x))
+                index_stop = int(np.round(index_start + self.active_area.width))
                 sd.play(self.data_y[index_start:index_stop], self.sampling_freq)
+
+        self._update_plot()
 
     def on_key_release(self, event):
         pass
 
     # ============================================================
-    #                       Axis Updates
+    #                       Utilities
     # ============================================================
-
-    def _update_bottom_axis(self, signal_index_start: int, signal_index_stop: int):
-        selected_data_x = self.data_x[signal_index_start:signal_index_stop]
-        selected_data_y = self.data_y[signal_index_start:signal_index_stop]
-        self.bottom_signal_handle.set_data(selected_data_x, selected_data_y)
-        self.bottom_axis.set_xlim(self.data_x[signal_index_start], self.data_x[signal_index_stop - 1])
-
-    def update_plot(self):
-        self.fig.canvas.draw()
-        #self.fig.canvas.restore_region(self.background)
-        #for area in self.areas:
-        #    self.top_axis.draw_artist(area._handle)
-        #    self.fig.canvas.blit(self.top_axis.bbox)
-
-    def sort_areas(self):
-        self.areas.sort(key=lambda area : area.x)
-
-    # ============================================================
-    #                       Getters
-    # ============================================================
-
-    def get_selected_areas(self):
-        return [area for area in self.areas if area._selected]
-
-    def get_hovering_area(self, x: float):
-        for area_handle in self.areas:
-            x_min = area_handle.get_x()
-            x_max = x_min + area_handle._width
-            if x_min < x < x_max:
-                return area_handle
-        return None
 
     def build_annotation_blueprint(self) -> dict:
 
@@ -399,6 +396,57 @@ class AudioAnnotator:
         #    }
 
         return blueprint
+
+
+
+    def _update_bottom_axis(self, signal_index_start: int, signal_index_stop: int):
+        selected_data_x = self.data_x[signal_index_start:signal_index_stop]
+        selected_data_y = self.data_y[signal_index_start:signal_index_stop]
+        self.bottom_signal_handle.set_data(selected_data_x, selected_data_y)
+        self.bottom_axis.set_xlim(self.data_x[signal_index_start], self.data_x[signal_index_stop - 1])
+
+    def _update_plot(self):
+
+        self.fig.canvas.draw()
+        #self.fig.canvas.restore_region(self.background)
+        #for area in self.areas:
+        #    self.top_axis.draw_artist(area._handle)
+        #    self.fig.canvas.blit(self.top_axis.bbox)
+
+    def _center_on_selected_area(self, area):
+        x_min = self.top_axis.viewLim.x0
+        x_max = self.top_axis.viewLim.xmax
+        axis_width = x_max - x_min
+
+        new_x_min = area.get_x_centre() - axis_width * 0.5
+        new_x_max = area.get_x_centre() + axis_width * 0.5
+
+        self.top_axis.set_xlim(new_x_min, new_x_max)
+
+    def _get_active_area_valid_play_range(self):
+
+        x_min, x_max = None, None
+
+        for index, area in self.areas:
+            if area == self.active_area:
+                if index > 0:
+                    x_min = self.areas[index - 1].get_x_max()
+                if index < len(self.areas) - 1:
+                    x_max = self.areas[index + 1].get_x_min()
+
+        return (x_min, x_max)
+
+    def _sort_areas(self):
+        self.areas.sort(key=lambda area: area.x)
+
+    def _remove_areas(self, areas: list):
+
+        if type(areas) is not list:
+            areas = [areas]
+
+        for area in areas:
+            area.set_visible(False)
+            self.areas.remove(area)
 
     def annotate(self, signal: np.array, sampling_freq: float, title='No Title') -> dict:
 
