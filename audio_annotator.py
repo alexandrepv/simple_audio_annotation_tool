@@ -153,40 +153,36 @@ class AudioAnnotator:
             for annotation in self.annotations:
 
                 # Activate edge if you clicked on the edge
-                annotation.activate_edge()
+                annotation.update_activated_edges()
 
                 # If you are hovering the area but not the edge, you just set it active
-                if annotation.is_hovering(x=mouse_x, y=0):
+                if annotation.is_edge_hovering():
                     annotation.activate(x=mouse_x)
                     self.state = GUIState.MOVING_EDGE
                 else:
                     annotation.deselect()
 
-                # Update offset is this area has just been selected
-                if annotation.active:
+                if self.state == GUIState.IDLE and annotation.is_hovering(x=mouse_x, y=0):
+
+                    # MOVE SELECTED AREAS
                     self.state = GUIState.MOVING_AREA
-                    annotation.update_select_offset(x=mouse_x)
+                    annotation.activate(x=mouse_x)
 
-            # CREATE NEW AREA
-            self.state = GUIState.NEW_AREA
-            new_area = Annotation(x_min=mouse_x, y_min=-1, x_max=mouse_x, y_max=2)
-            new_area.attach_to_axis(axis=self.top_axis)
-            new_area.activate(x=mouse_x)
-            new_area.right_edge_active = True
-            self.annotations.append(new_area)
-            self._sort_areas()
+                    # UPDATE SIGNAL ON BOTTON AXIS
+                    index_start = int(np.round(annotation.x_min))
+                    index_stop = int(np.round(annotation.x_max))
+                    self._update_bottom_axis(signal_index_start=index_start, signal_index_stop=index_stop)
 
+            if self.state == GUIState.IDLE:
 
-            # MOVE SELECTED AREAS
-            """self.state = GUIState.MOVING_AREA
-            if self.active_area is not None:
-                self.active_area.set_x(x=mouse_x, with_offset=True)
-
-                # UPDATE SIGNAL ON BOTTON AXIS
-                index_start = int(np.round(self.active_area.x))
-                index_stop = int(np.round(self.active_area.x + self.active_area.width))
-                self._update_bottom_axis(signal_index_start=index_start,
-                                         signal_index_stop=index_stop)"""
+                # CREATE NEW AREA
+                self.state = GUIState.NEW_AREA
+                new_area = Annotation(x_min=mouse_x, y_min=-1, x_max=mouse_x, y_max=2)
+                new_area.attach_to_axis(axis=self.top_axis)
+                new_area.activate(x=mouse_x)
+                new_area.right_edge_active = True
+                self.annotations.append(new_area)
+                self._sort_areas()
 
         # =====================================================================
         # Stage 3) Check if the view is being panned
@@ -290,7 +286,7 @@ class AudioAnnotator:
                     self.annotations.remove(annotation)
 
             if self.state == GUIState.MOVING_EDGE:
-                annotation.fix_negative_width()
+                annotation.fix_min_and_max()
 
             # TODO: Make this a self-contained bottom_axis update based on the self.active_area
             if self.bottom_signal_handle is not None and (self.state in [GUIState.NEW_AREA, GUIState.MOVING_EDGE, GUIState.MOVING_AREA]):

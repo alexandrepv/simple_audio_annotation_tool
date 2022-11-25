@@ -32,6 +32,7 @@ class Annotation:
         self.active = False
         self.selected = False
         self.hovering = False
+        self.moving = False
         self.attached_to_axis = False
         self.left_edge_hovering = False
         self.right_edge_hovering = False
@@ -62,7 +63,7 @@ class Annotation:
             self.text_handle.remove()
 
     # ===========================================================
-    #                        Update Functions
+    #                      Update Functions
     # ===========================================================
 
     def update_select_offset(self, x):
@@ -105,6 +106,12 @@ class Annotation:
             else:
                 self.right_edge_hovering = False
 
+    def update_activated_edges(self):
+        if self.left_edge_hovering:
+            self.left_edge_active = True
+        if self.right_edge_hovering:
+            self.right_edge_active = True
+
     # ===========================================================
     #                           Utility
     # ===========================================================
@@ -142,15 +149,10 @@ class Annotation:
             self.rect_handle.set_x(self.get_rect_x())
             self.rect_handle.set_width(self.get_rect_width())
 
+
     # ===========================================================
     #                           Setters
     # ===========================================================
-
-    def activate_edge(self):
-        if self.left_edge_hovering:
-            self.left_edge_active = True
-        if self.right_edge_hovering:
-            self.right_edge_active = True
 
     def deactivate_edges(self):
         self.left_edge_active = False
