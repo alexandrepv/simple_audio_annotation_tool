@@ -31,6 +31,7 @@ class Annotation:
         self.text_handle = None  # Matplotlib handle
         self.active = False
         self.selected = False
+        self.hovering = False
         self.attached_to_axis = False
         self.left_edge_hovering = False
         self.right_edge_hovering = False
@@ -44,7 +45,7 @@ class Annotation:
         self.y_max = y_max
         self.edge_grab_offset_pixels_x = edge_grab_offset_pixels_x
         self.edge_grab_offset_pixels_y = edge_grab_offset_pixels_y
-        self.mouse_offset_x = 0
+        self.mouse_offset_x_min = 0
 
         # Color variables
         self.idle_color = 'b'
@@ -65,7 +66,7 @@ class Annotation:
     # ===========================================================
 
     def update_select_offset(self, x):
-        self.mouse_offset_x = self.x_min - x
+        self.mouse_offset_x_min = self.x_min - x
 
     def update_rect_handle(self):
         if self.rect_handle is None:
@@ -83,9 +84,14 @@ class Annotation:
         else:
             self.rect_handle.set(edgecolor=None)
 
-    def update_hovering_edges(self, x_pixels: float):
+    def update_hovering(self, x_pixels: float):
         if self.rect_handle is not None:
             bbox = self.rect_handle.get_extents()
+
+            if bbox.x0 <= x_pixels <= bbox.xmax:
+                self.hovering = True
+            else:
+                self.hovering = False
 
             delta = np.abs(bbox.x0 - x_pixels)
             if delta < self.edge_grab_offset_pixels_x:
@@ -104,11 +110,12 @@ class Annotation:
     # ===========================================================
 
     def activate(self, x: float):
-        self.mouse_offset_x = self.x_min - x  # Record the current mouse offset at time of selection
+        self.mouse_offset_x_min = self.x_min - x  # Record the current mouse offset at time of selection
         self.selected = True
         self.active = True
 
     def deselect(self):
+        self.active = False
         self.selected = False
 
     def deactivate(self):
@@ -128,7 +135,7 @@ class Annotation:
         self.attached_to_axis = True
 
     def fix_min_and_max(self):
-        if self.x_min < self.x_max:
+        if self.x_max < self.x_min:
             self.x_min, self.x_max = self.x_max, self.x_min
 
         if self.rect_handle is not None:
@@ -149,11 +156,15 @@ class Annotation:
         self.left_edge_active = False
         self.right_edge_active = False
 
+    def move_x_range(self, new_x_min: float, include_offset=True):
+        width = self.x_max - self.x_min
+        self.x_min = new_x_min + self.mouse_offset_x_min if include_offset else new_x_min
+        self.x_max = self.x_min + width
+
     def set_x_min(self, x: float, valid_range=None) -> None:
         if valid_range is None:
             self.x_min = x
         else:
-            # Make sure valid_range is tuple
             self.xmin = np.clip(x, a_min=valid_range[0], a_max=valid_range[1])
         self.rect_handle.set_x(self.get_rect_x())
         self.rect_handle.set_width(self.get_rect_width())
@@ -162,7 +173,6 @@ class Annotation:
         if valid_range is None:
             self.x_max = x
         else:
-            # Make sure valid_range is tuple
             self.x_max = np.clip(x, a_min=valid_range[0], a_max=valid_range[1])
         self.rect_handle.set_width(self.get_rect_width())
         self.rect_handle.set_x(self.get_rect_x())
