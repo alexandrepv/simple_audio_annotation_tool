@@ -159,8 +159,6 @@ class AudioAnnotator:
                 if annotation.is_edge_hovering():
                     annotation.activate(x=mouse_x)
                     self.state = GUIState.MOVING_EDGE
-                else:
-                    annotation.deselect()
 
                 if self.state == GUIState.IDLE and annotation.is_hovering(x=mouse_x, y=0):
 
@@ -177,7 +175,7 @@ class AudioAnnotator:
 
                 # CREATE NEW AREA
                 self.state = GUIState.NEW_AREA
-                new_area = Annotation(x_min=mouse_x, y_min=-1, x_max=mouse_x, y_max=2)
+                new_area = Annotation('debug', x_min=mouse_x, y_min=-1, x_max=mouse_x, y_max=2)
                 new_area.attach_to_axis(axis=self.top_axis)
                 new_area.activate(x=mouse_x)
                 new_area.right_edge_active = True
@@ -282,13 +280,11 @@ class AudioAnnotator:
                 # Delete active area if area is too narrow
                 if abs_delta < MINIMUM_NEW_AREA_WIDTH_PIXELS:
                     annotation.set_visible(False)
-                    # TODO: Add graphics update here?
                     self.annotations.remove(annotation)
 
             if self.state == GUIState.MOVING_EDGE:
                 annotation.fix_min_and_max()
 
-            # TODO: Make this a self-contained bottom_axis update based on the self.active_area
             if self.bottom_signal_handle is not None and (self.state in [GUIState.NEW_AREA, GUIState.MOVING_EDGE, GUIState.MOVING_AREA]):
                 index_start = int(np.round(annotation.x_min))
                 index_stop = int(np.round(annotation.x_max))
@@ -349,11 +345,11 @@ class AudioAnnotator:
                 annotation.increment_x(ARROW_STEP_SIZE)
 
             if event.key == 'delete':
-                self._remove_areas(areas=[annotation])
+                self._remove_areas(annotations=[annotation])
 
             if event.guiEvent.keysym == 'space':
-                index_start = int(np.round(annotation.x))
-                index_stop = int(np.round(index_start + annotation.width))
+                index_start = int(np.round(annotation.x_min))
+                index_stop = int(np.round(annotation.x_max))
                 sd.play(self.data_y[index_start:index_stop], self.sampling_freq)
 
         self._update_plot()
@@ -388,7 +384,7 @@ class AudioAnnotator:
 
         # DEBUG
         for annotation in self.annotations:
-            annotation.update_rect_handle()
+            annotation.update_plot_elements()
 
         self.fig.canvas.draw()
         #self.fig.canvas.restore_region(self.background)
@@ -401,35 +397,22 @@ class AudioAnnotator:
         x_max = self.top_axis.viewLim.xmax
         axis_width = x_max - x_min
 
-        new_x_min = area.get_x_centre() - axis_width * 0.5
-        new_x_max = area.get_x_centre() + axis_width * 0.5
+        new_x_min = area.get_x_center() - axis_width * 0.5
+        new_x_max = area.get_x_center() + axis_width * 0.5
 
         self.top_axis.set_xlim(new_x_min, new_x_max)
-
-    def _get_active_area_valid_play_range(self):
-
-        x_min, x_max = None, None
-
-        for index, area in self.annotations:
-            if area == self.active_area:
-                if index > 0:
-                    x_min = self.annotations[index - 1].get_x_max()
-                if index < len(self.annotations) - 1:
-                    x_max = self.annotations[index + 1].get_x_min()
-
-        return (x_min, x_max)
 
     def _sort_areas(self):
         self.annotations.sort(key=lambda annotation: annotation.x_min)
 
-    def _remove_areas(self, areas: list):
+    def _remove_areas(self, annotations: list):
 
-        if type(areas) is not list:
-            areas = [areas]
+        if type(annotations) is not list:
+            annotations = [annotations]
 
-        for area in areas:
-            area.set_visible(False)
-            self.annotations.remove(area)
+        for annotation in annotations:
+            annotation.set_visible(False)
+            self.annotations.remove(annotation)
 
     def annotate(self, signal: np.array, sampling_freq: float, title='No Title') -> dict:
 
@@ -441,12 +424,12 @@ class AudioAnnotator:
         self.data_x_min = np.min(self.data_x)
         self.data_x_max = np.max(self.data_x)
 
-        self.top_axis.plot(signal, linewidth=1)
+        self.top_axis.plot(signal, linewidth=1, zorder=2)
         self.top_axis.set_xlim(self.data_x_min, self.data_x_max)
         self.top_axis.set_ylim(np.min(signal), np.max(signal))
         self.top_axis.set_title(title)
         self.top_axis.set_ylabel('Signal Value')
-        self.top_axis.set_xlabel('Signal Samples')
+        self.top_axis.set_xlabel('Sample Indices')
 
         self.bottom_signal_handle,  = self.bottom_axis.plot(signal)
 

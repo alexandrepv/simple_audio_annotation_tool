@@ -5,9 +5,14 @@ import numpy as np
 DEFAULT_STATE = 'idle'
 DEFAULT_EDGE_GRAB_MARGIN = 5
 DEFAULT_ALPHA = 0.3
-DEFAULT_IDLE_COLOR = 'b'
-DEFAULT_SELECTED_COLOR = 'r'
+DEFAULT_IDLE_COLOR = (0, 0, 1)
+DEFAULT_IDLE_EDGE_COLOR = (.25, .25, .75)
+DEFAULT_SELECTED_COLOR = (1, 0, 0)
+DEFAULT_SELECTED_EDGE_COLOR = (0.75, .25, .25)
+DEFAULT_ACTIVE_COLOR = 'r'
 DEFAULT_ACTIVE_EDGE_COLOR = 'r'
+DEFAULT_EDGE_WIDTH = 2
+DEFAULT_LABEL_FONT_SIZE = 25
 
 """
 [ Useful Links ]
@@ -19,6 +24,7 @@ https://stackoverflow.com/questions/21687571/matplotlib-remove-patches-from-figu
 class Annotation:
 
     def __init__(self,
+                 label='',
                  x_min=0,
                  x_max=0,
                  y_min=0,
@@ -26,7 +32,7 @@ class Annotation:
                  edge_grab_offset_pixels_x=DEFAULT_EDGE_GRAB_MARGIN,
                  edge_grab_offset_pixels_y=DEFAULT_EDGE_GRAB_MARGIN):
 
-        self.label = ''
+        self.label = label
         self.rect_handle = None  # Matplotlib handle
         self.text_handle = None  # Matplotlib handle
         self.active = False
@@ -49,10 +55,12 @@ class Annotation:
         self.mouse_offset_x_min = 0
 
         # Color variables
-        self.idle_color = 'b'
-        self.idle_color_alpha = 0.3
-        self.selected_color = 'r'
-        self.selected_color_alpha = 0.3
+        self.idle_color = DEFAULT_IDLE_COLOR
+        self.idle_edge_color = DEFAULT_IDLE_EDGE_COLOR
+        self.idle_alpha = DEFAULT_ALPHA
+        self.selected_color = DEFAULT_SELECTED_COLOR
+        self.selected_idle_color = DEFAULT_SELECTED_COLOR
+        self.selected_alpha = 0.3
 
     def __del__(self):
         # Detach automatically if still attached
@@ -69,21 +77,21 @@ class Annotation:
     def update_select_offset(self, x):
         self.mouse_offset_x_min = self.x_min - x
 
-    def update_rect_handle(self):
+    def update_plot_elements(self):
         if self.rect_handle is None:
             return
+
         self.rect_handle.set_x(self.get_rect_x())
         self.rect_handle.set_width(self.get_rect_width())
 
         if self.selected:
-            self.rect_handle.set(color=DEFAULT_SELECTED_COLOR)
-        else:
-            self.rect_handle.set(color=DEFAULT_IDLE_COLOR)
-
-        if self.active:
+            self.rect_handle.set(color=DEFAULT_SELECTED_COLOR, edgecolor=DEFAULT_SELECTED_EDGE_COLOR)
+        elif self.active:
             self.rect_handle.set(edgecolor=DEFAULT_ACTIVE_EDGE_COLOR)
         else:
-            self.rect_handle.set(edgecolor=None)
+            self.rect_handle.set(color=DEFAULT_IDLE_COLOR, edgecolor=DEFAULT_IDLE_EDGE_COLOR)
+
+        self.text_handle.set(x=self.get_x_center())
 
     def update_hovering(self, x_pixels: float):
         if self.rect_handle is not None:
@@ -135,9 +143,22 @@ class Annotation:
             width=self.get_rect_width(),
             height=self.get_rect_height(),
             facecolor=self.idle_color,
-            alpha=self.idle_color_alpha,
-            edgecolor=None
+            alpha=self.idle_alpha,
+            edgecolor=None,
+            linewidth=DEFAULT_EDGE_WIDTH,
+            zorder=1
         )
+
+        self.text_handle = axis.text(
+            self.get_x_center(),
+            self.get_y_center(),
+            self.label,
+            size=DEFAULT_LABEL_FONT_SIZE,
+            ha="center",
+            va="center",
+            clip_on=True
+        )
+
         axis.add_patch(self.rect_handle)
         self.attached_to_axis = True
 
@@ -149,10 +170,12 @@ class Annotation:
             self.rect_handle.set_x(self.get_rect_x())
             self.rect_handle.set_width(self.get_rect_width())
 
-
     # ===========================================================
     #                           Setters
     # ===========================================================
+
+    def set_label(self, label: str):
+        self.label = label
 
     def deactivate_edges(self):
         self.left_edge_active = False
@@ -162,6 +185,14 @@ class Annotation:
         width = self.x_max - self.x_min
         self.x_min = new_x_min + self.mouse_offset_x_min if include_offset else new_x_min
         self.x_max = self.x_min + width
+
+    def increment_x(self, delta_x):
+        self.x_min += delta_x
+        self.x_max += delta_x
+
+    def decrement_x(self, delta_x):
+        self.x_min -= delta_x
+        self.x_max -= delta_x
 
     def set_x_min(self, x: float, valid_range=None) -> None:
         if valid_range is None:
@@ -193,8 +224,11 @@ class Annotation:
     def get_x_max(self) -> float:
         return self.x_max
 
-    def get_x_centre(self):
+    def get_x_center(self):
         return (self.x_min + self.x_max) * 0.5
+
+    def get_y_center(self):
+        return (self.y_min + self.y_max) * 0.5
 
     def get_rect_x(self) -> float:
         return self.x_min
